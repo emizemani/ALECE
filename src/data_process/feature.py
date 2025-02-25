@@ -348,7 +348,7 @@ def load_workload_data(args):
 
         (all_features_2, all_cards_2, _, _, _, test_idxes, test_sub_idxes,
          test_single_idxes, meta_infos_2) = _load_data_from_workload(args, test_wl_type)
-
+        meta_infos = np.array(meta_infos)
         for i in range(meta_infos.shape[0]):
             assert meta_infos_2[i] == meta_infos[i]
 

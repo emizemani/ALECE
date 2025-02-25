@@ -1,0 +1,4 @@
+epoch,loss,best_loss,cpu_usage,epoch_time
+1,0,inf,7.4,7.811546087265015
+2,0,inf,27.9,2.18471622467041
+SUMMARY,inf,inf,27.9,9.999627113342285

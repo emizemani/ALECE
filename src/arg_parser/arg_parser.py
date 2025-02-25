@@ -48,8 +48,8 @@ def get_stats_arg_parser():
                         help='its path is os.path.join(args.data_dir, args.tables_info_file)')
 
     # ----------------------------------- DB Params -----------------------------------
-    parser.add_argument('--db_data_dir', type=str, default='$PG_DATADIR$', help='')
-    parser.add_argument('--db_name', type=str, default='', help='')
+    parser.add_argument('--db_data_dir', type=str, default='/home/user/pg_data', help='')
+    parser.add_argument('--db_name', type=str, default='user', help='')
     parser.add_argument('--db_subqueries_fname', type=str, default='join_sub_queries.txt', help='')
     parser.add_argument('--db_single_tbls_fname', type=str, default='single_sub_queries.txt', help='')
 
@@ -126,6 +126,10 @@ def get_stats_arg_parser():
     # ----------------------------------- calc Params -----------------------------------
     parser.add_argument('--calc_task', type=str, default='q_error',
                         help='')
+
+    # Add this new argument
+    parser.add_argument('--quick_test', action='store_true', 
+                       help='Run with reduced dataset (100 samples) for testing')
 
     args = parser.parse_args()
     return args
