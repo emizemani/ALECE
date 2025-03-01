@@ -203,7 +203,7 @@ def judge_if_ignore_single_cards(args):
         ignore_single_cards = True
     return ignore_single_cards
 
-def run_workload(args):
+def run_workload(args, logger=None):
     if_static_workload, conn, cur, sqls, _, num_single_tbls_list = prepare_before_running_workload(args)
     test_queries = []
     id_raw_id_map = {}
@@ -298,6 +298,11 @@ def run_workload(args):
     finally:
         cur.close()
         conn.close()
+
+    if logger and results:
+        exec_times = [r[1] for r in results]
+        logger.update_execution_times(exec_times)
+
     return total_time, results, test_queries, id_raw_id_map
 
 

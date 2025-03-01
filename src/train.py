@@ -7,6 +7,7 @@ from arg_parser import arg_parser
 
 from utils import FileViewer, file_utils, eval_utils, arg_parser_utils
 from data_process import feature
+from utils.metrics_logger import MetricsLogger
 
 
 def train_with_batch(model, args, train_data, validation_data, curr_ckpt_step):
@@ -59,6 +60,9 @@ def train_with_batch(model, args, train_data, validation_data, curr_ckpt_step):
             print(f'Epoch-{epoch}, loss = {loss}, best_loss = {best_loss}')
         else:
             print(f'Epoch-{epoch}')
+
+    logger = MetricsLogger(args, model.model_name)
+    return logger
 
 def eval(model, args, test_data, q_error_dir):
     batch_preds_list = []
@@ -257,13 +261,35 @@ if __name__ == '__main__':
 
     training = ckpt_step < 0 or args.keep_train == 1
     if training:
-        train_with_batch(model, args, train_data, validation_data, ckpt_step)
+        logger = train_with_batch(model, args, train_data, validation_data, ckpt_step)
         model.compile(train_data)
+    else:
+        logger = MetricsLogger(args, model.model_name)
 
+    # Evaluation
     ckpt_step = model.restore().numpy()
     assert ckpt_step >= 0
     preds = eval(model, args, test_data, q_error_dir)
+    
+    # Update Q-error metrics
+    test_labels = test_data[-1].numpy()
+    test_labels = label_preds_to_card_preds(np.reshape(test_labels, [-1]), args)
+    logger.update_q_error(preds, test_labels)
 
+    # Run P-error calculation
+    from benchmark.calc_p_error import calc_p_error
+    calc_p_error(args, logger=logger)
+    
+    # Run e2e evaluation
+    from benchmark.e2e_eval import run_workload
+    total_time, results, _, _ = run_workload(args)
+    if results:
+        exec_times = [r[1] for r in results]
+        logger.update_execution_times(exec_times)
+    
+    # Save all metrics
+    logger.save()
+    
     # ====================================================
     preds = preds.tolist()
     workload_dir = arg_parser_utils.get_workload_dir(args, test_wl_type)

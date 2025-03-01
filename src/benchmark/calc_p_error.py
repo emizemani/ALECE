@@ -35,7 +35,7 @@ def process_error_val(val):
     return f'${a_str}$$\\cdot$$10^{exponent}$'
 
 
-def calc_p_error(args, test_wl_type=None, model=None):
+def calc_p_error(args, test_wl_type=None, model=None, logger=None):
     if test_wl_type is None:
         test_wl_type = args.test_wl_type
     if model is None:
@@ -74,6 +74,10 @@ def calc_p_error(args, test_wl_type=None, model=None):
         results.append(process_error_val(val))
     result_str = ' & '.join(results)
     print(f'{args.data}-{args.wl_type}-{args.model}: {result_str}')
+
+    if logger:
+        logger.update_p_error(p_error_test)
+
     return error_vals
 
 
