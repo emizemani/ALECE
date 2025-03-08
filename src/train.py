@@ -8,9 +8,19 @@ from arg_parser import arg_parser
 from utils import FileViewer, file_utils, eval_utils, arg_parser_utils
 from data_process import feature
 from utils.metrics_logger import MetricsLogger
+import json
+import time
+import psutil
+import tensorflow.keras.backend as K
+
 
 
 def train_with_batch(model, args, train_data, validation_data, curr_ckpt_step):
+
+    start_time = time.time()
+    cpu_usage = []
+    memory_usage = []
+
     _train_dataset = tf.data.Dataset.from_tensor_slices(train_data)
     _validation_dataset = tf.data.Dataset.from_tensor_slices(validation_data)
 
@@ -40,6 +50,8 @@ def train_with_batch(model, args, train_data, validation_data, curr_ckpt_step):
     else:
         print(f'best_loss = {best_loss}')
     for epoch in range(1, args.n_epochs + 1):
+        cpu_usage.append(psutil.cpu_percent())
+        memory_usage.append(psutil.virtual_memory().used / (1024 ** 3))
         train_dataset = _train_dataset.shuffle(args.shuffle_buffer_size).batch(args.batch_size)
         batch_no = 0
         for batch in train_dataset.take(n_batches):
@@ -62,7 +74,11 @@ def train_with_batch(model, args, train_data, validation_data, curr_ckpt_step):
             print(f'Epoch-{epoch}')
 
     logger = MetricsLogger(args, model.model_name)
-    return logger
+    # Calculate total training time
+    end_time = time.time()
+    training_time_hours = (end_time - start_time) / 3600
+
+    return logger, training_time_hours, np.mean(cpu_usage), np.mean(memory_usage)
 
 def eval(model, args, test_data, q_error_dir):
     batch_preds_list = []
@@ -89,8 +105,11 @@ def eval(model, args, test_data, q_error_dir):
         fname = model.model_name
         result_path = os.path.join(q_error_dir, fname + ".npy")
         np.save(result_path, preds)
+    q_error_mean = np.mean(q_error)
+    q_error_median = np.median(q_error)
+    q_error_max = np.max(q_error)
 
-    return preds
+    return preds, q_error_mean, q_error_median, q_error_max
 
 
 def _normalize(data, X_mean, X_std, nonzero_idxes):
@@ -237,21 +256,25 @@ def load_data(args):
 
 
 if __name__ == '__main__':
+    # Clear TensorFlow cache before training starts
+    K.clear_session()
+    
     args = arg_parser.get_arg_parser()
     gpus = tf.config.list_physical_devices('GPU')
     tf.config.set_visible_devices(gpus[args.gpu:args.gpu + 1], 'GPU')
 
     test_wl_type = args.test_wl_type
     FileViewer.detect_and_create_dir(args.experiments_dir)
-
     datasets, q_error_dir, ckpt_dir = load_data(args)
     (train_data, validation_data, test_data) = datasets
 
     model_name = f'{args.model}_{args.wl_type}'
-    # ====================================================
+    
+    # Initialize Model
     model = ALECE.ALECE(args)
     model.set_model_name(model_name)
     model.ckpt_init(ckpt_dir)
+    
     ckpt_files = FileViewer.list_files(ckpt_dir)
     if len(ckpt_files) > 0:
         ckpt_step = model.restore().numpy()
@@ -261,15 +284,21 @@ if __name__ == '__main__':
 
     training = ckpt_step < 0 or args.keep_train == 1
     if training:
-        logger = train_with_batch(model, args, train_data, validation_data, ckpt_step)
-        model.compile(train_data)
+        logger, training_time_hours, avg_cpu_usage, avg_memory_usage = train_with_batch(model, args, train_data, validation_data, ckpt_step)
+
+        # Prevent saving checkpoints if debug mode is enabled
+        if args.debug_mode == 0:
+            model.compile(train_data)
+            model.save(ckpt_step)
+        else:
+            print("Debug mode enabled: No checkpoints or models will be saved.")
     else:
         logger = MetricsLogger(args, model.model_name)
 
     # Evaluation
     ckpt_step = model.restore().numpy()
     assert ckpt_step >= 0
-    preds = eval(model, args, test_data, q_error_dir)
+    preds, q_error_mean, q_error_median, q_error_max = eval(model, args, test_data, q_error_dir)
     
     # Update Q-error metrics
     test_labels = test_data[-1].numpy()
@@ -280,17 +309,26 @@ if __name__ == '__main__':
     from benchmark.calc_p_error import calc_p_error
     calc_p_error(args, logger=logger)
     
-    # Run e2e evaluation
+    # Run End-to-End evaluation
     from benchmark.e2e_eval import run_workload
     total_time, results, _, _ = run_workload(args)
-    if results:
-        exec_times = [r[1] for r in results]
-        logger.update_execution_times(exec_times)
+
+    # Capture execution times from results
+    avg_exec_time = np.mean([r[1] for r in results]) if results else None
+    e2e_time_ms = total_time * 1000 if total_time else None
     
-    # Save all metrics
+    # Update MetricsLogger with final values
+    logger.metrics["performance"]["training_time"] = training_time_hours
+    logger.metrics["performance"]["avg_query_exec_time"] = avg_exec_time
+    logger.metrics["performance"]["e2e_time"] = e2e_time_ms
+    logger.metrics["resource_usage"]["cpu_percent"] = avg_cpu_usage
+    logger.metrics["resource_usage"]["memory_mb"] = avg_memory_usage * 1024  # Convert GB to MB
+
+    # Save JSON Log using MetricsLogger
     logger.save()
-    
-    # ====================================================
+    print(f"Experiment log saved in MetricsLogger at {args.experiments_dir}")
+
+    # Save Predictions
     preds = preds.tolist()
     workload_dir = arg_parser_utils.get_workload_dir(args, test_wl_type)
     e2e_dir = os.path.join(args.experiments_dir, args.e2e_dirname)
