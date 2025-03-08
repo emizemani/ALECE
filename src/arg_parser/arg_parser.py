@@ -86,6 +86,7 @@ def get_stats_arg_parser():
 
     # ----------------------------------- Training Params -----------------------------------
     parser.add_argument('--gpu', type=int, default=1, help='')
+    parser.add_argument('--debug_mode', type=int, default=0, help="Set to 1 to run a short test without saving.")
     parser.add_argument('--buffer_size', type=int, default=32, help='')
     parser.add_argument('--use_loss_weights', type=int, default=1, help='')
     parser.add_argument('--batch_size', type=int, default=1024)
