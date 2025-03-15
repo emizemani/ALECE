@@ -2,27 +2,27 @@ import os
 import argparse
 import pathlib
 
-def get_stats_arg_parser():
+def get_tpch_arg_parser():
     parser = argparse.ArgumentParser(description='ALECE')
-    parser.add_argument('--data', type=str, default='STATS',
+    parser.add_argument('--data', type=str, default='tpch',
                         help='')
 
     # ----------------------------------- Data Path Params -----------------------------------
-    parser.add_argument('--base_dir', type=str, default='../data/STATS/',
+    parser.add_argument('--base_dir', type=str, default='../data/tpch/',
                         help='')
     parser.add_argument('--absolute_base_dir', type=str,
-                        default='$WORKSPACE_DIR$/data/STATS',
+                        default='$WORKSPACE_DIR$/data/tpch',
                         help='')
-    parser.add_argument('--data_dir', type=str, default='../data/STATS/data',
+    parser.add_argument('--data_dir', type=str, default='../data/tpch/data',
                         help='data dir')
-    parser.add_argument('--workload_base_dir', type=str, default='../data/STATS/workload/',
+    parser.add_argument('--workload_base_dir', type=str, default='../data/tpch/workload/',
                         help='')
     parser.add_argument('--data_dirname', type=str, default='data',
                         help='data dirname')
     parser.add_argument('--int_data_dirname', type=str, default='int',
                         help='')
 
-    parser.add_argument('--experiments_dir', type=str, default='../exp/STATS/',
+    parser.add_argument('--experiments_dir', type=str, default='../exp/tpch/',
                         help='Directory to put the experimental results.')
     parser.add_argument('--feature_data_dirname', type=str, default='features',
                         help='its path is os.path.join(args.data_dir/args.dynamic_workload_dirname, args.feature_data_dirname)')
@@ -132,7 +132,7 @@ def get_stats_arg_parser():
     return args
 
 def get_arg_parser():
-    args = get_stats_arg_parser()
+    args = get_tpch_arg_parser()
     workspace_dir = str(pathlib.Path().resolve().parent.absolute())
     args.absolute_base_dir = args.absolute_base_dir.replace('$WORKSPACE_DIR$', workspace_dir)
 

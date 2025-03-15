@@ -279,40 +279,33 @@ class databaseHistogram(object):
             elif line.startswith("t"): # train or train_sub or test or test_sub
                 if i >= start_line_no:
                     terms = line.split("||")
-                    card_str = "-1"
+                    # Always get cardinality from the last term
+                    card_str = terms[-1].strip() if terms else "-1"
+                    
                     if line.startswith("train"):
                         if line.startswith("train_sub"):
-                            if len(terms) >= 5:
-                                card_str = terms[-2]
                             self.train_sub_idxes.append(j)
                             query_id = "-".join(["0", terms[1], terms[2]])
                         else:
                             assert line.startswith("train_query")
-                            if len(terms) >= 4:
-                                card_str = terms[-2]
                             self.train_idxes.append(j)
                             query_id = "-".join(["1", terms[1]])
                     else: # line.startswith("train"):
                         if line.startswith("test_sub"):
-                            if len(terms) >= 5:
-                                card_str = terms[-2]
                             self.test_sub_idxes.append(j)
                             query_id = "-".join(["3", terms[1], terms[2]])
                         elif line.startswith("test_single"):
-                            if len(terms) >= 5:
-                                card_str = terms[-2]
                             self.test_single_idxes.append(j)
                             query_id = "-".join(["4", terms[1], terms[2]])
                         else:
-                            if len(terms) >= 4:
-                                card_str = terms[-2]
                             self.test_idxes.append(j)
                             query_id = "-".join(["5", terms[1]])
                     j += 1
                     query_str = terms[0]
                     idx = query_str.find(':')
                     query_str = query_str[idx + 2:]
-                    self.query_and_results.append(query_str + "||" + card_str + "\n")
+                    # Maintain the ||1||1|| format when storing queries
+                    self.query_and_results.append(f"{query_str}||1||1||{card_str}\n")
                     self.query_ids.append(query_id + "\n")
                     self.batch_process(batch_sqls)
                     curr_feature = self.current_histogram_feature()

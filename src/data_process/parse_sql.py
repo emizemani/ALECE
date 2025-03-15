@@ -82,30 +82,26 @@ def parse_sql(sql_and_other_info,
     sql_and_other_info = sql_and_other_info[idx:]
     # terms = sql_and_other_info.split(" from ")
     # sql_and_other_info = terms[1]
-    terms = sql_and_other_info.split(delim) # sql || join_type || selection_type || sql_no (used in postgres) || true card || cartesian card
+    terms = sql_and_other_info.split(delim)
 
-    join_type = None
-    selection_type = None
-    sql_no = -1
+    join_type = "1"  # Hardcoded placeholder
     true_card = -1
-    cartesian_join_card = -1
-    natural_join_card = -1
+    cartesian_join_card = 1  # Hardcoded placeholder
+    natural_join_card = 1  # Hardcoded placeholder
 
-    if len(terms) >= 5:
-        join_type = terms[1]
-        true_card = int(terms[4])
-        if len(terms) > 5:
-            cartesian_join_card = int(terms[5])
-        if len(terms) > 6:
-            natural_join_card = int(terms[6])
-    elif len(terms) == 3:
-        true_card = int(terms[2])
-    elif len(terms) == 2:
-        true_card = int(terms[1])
+    # Since our format is always: query ||1||1||true_card||
+    if len(terms) > 0:  # As long as we have terms
+        # Remove any trailing empty strings caused by the final '||'
+        while terms and terms[-1] == '':
+            terms.pop()
+        try:
+            true_card = int(terms[-1])  # Get the last non-empty term
+        except ValueError:
+            true_card = -1  # Fallback if parsing fails
 
     if true_card >= 0:
         if true_card < min_card_threshold:
-            return None, None, None, None, None, None, None, None
+            return None, None, None, None, None, None, None, None, None
 
     short_full_table_name_map, join_predicates, filter_predicates = sql_utils.simple_parse(terms[0])
     relevant_tables = []

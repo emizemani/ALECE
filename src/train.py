@@ -12,6 +12,7 @@ import json
 import time
 import psutil
 import tensorflow.keras.backend as K
+from tqdm import tqdm
 
 
 
@@ -49,12 +50,14 @@ def train_with_batch(model, args, train_data, validation_data, curr_ckpt_step):
         print('best_loss = inf')
     else:
         print(f'best_loss = {best_loss}')
+
     for epoch in range(1, args.n_epochs + 1):
         cpu_usage.append(psutil.cpu_percent())
         memory_usage.append(psutil.virtual_memory().used / (1024 ** 3))
         train_dataset = _train_dataset.shuffle(args.shuffle_buffer_size).batch(args.batch_size)
         batch_no = 0
-        for batch in train_dataset.take(n_batches):
+        
+        for batch in tqdm(train_dataset.take(n_batches), desc=f"Epoch {epoch}/{args.n_epochs}"):
             model.train_step(batch)
             batch_no += 1
 
@@ -274,31 +277,44 @@ if __name__ == '__main__':
     model = ALECE.ALECE(args)
     model.set_model_name(model_name)
     model.ckpt_init(ckpt_dir)
+    print(f'This is the ckpt file directory {ckpt_dir}')
     
     ckpt_files = FileViewer.list_files(ckpt_dir)
     if len(ckpt_files) > 0:
         ckpt_step = model.restore().numpy()
+        if ckpt_step == -1:
+            print("⚠️ Warning: Checkpoint directory exists, but no valid checkpoint found.")
+        else:
+            print(f'✅ Loaded checkpoint with step {ckpt_step}')
     else:
         ckpt_step = -1
-    print('ckpt_step =', ckpt_step)
+        print('🚀 No checkpoint found, starting from scratch')
 
-    training = ckpt_step < 0 or args.keep_train == 1
+    # Only check keep_train flag if a checkpoint was properly loaded
+    training = args.keep_train == 1 or ckpt_step < 0
+
     if training:
+        print("Starting training...")
         logger, training_time_hours, avg_cpu_usage, avg_memory_usage = train_with_batch(model, args, train_data, validation_data, ckpt_step)
+        print(f"Training completed. Training time: {training_time_hours} hours, CPU usage: {avg_cpu_usage}%, Memory usage: {avg_memory_usage} GB")
 
-        # Prevent saving checkpoints if debug mode is enabled
-        if args.debug_mode == 0:
-            model.compile(train_data)
-            model.save(ckpt_step)
-        else:
-            print("Debug mode enabled: No checkpoints or models will be saved.")
+        # Always compile and save, even in debug mode
+        model.compile(train_data)
+        ckpt_step = model.restore().numpy()
+        print(f'Saved checkpoint at step {ckpt_step}')
     else:
+        print("No training performed. Initializing logger with zeroed metrics.")
         logger = MetricsLogger(args, model.model_name)
+        # Set training-related metrics to zero if no training is performed
+        training_time_hours = 0
+        avg_cpu_usage = 0
+        avg_memory_usage = 0
 
     # Evaluation
-    ckpt_step = model.restore().numpy()
     assert ckpt_step >= 0
+    print("Starting evaluation...")
     preds, q_error_mean, q_error_median, q_error_max = eval(model, args, test_data, q_error_dir)
+    print("Evaluation completed.")
     
     # Update Q-error metrics
     test_labels = test_data[-1].numpy()
@@ -307,17 +323,24 @@ if __name__ == '__main__':
 
     # Run P-error calculation
     from benchmark.calc_p_error import calc_p_error
-    calc_p_error(args, logger=logger)
+    p_error_values = calc_p_error(args) # Capture the returned values
+    print(f"P-error values: {p_error_values}")
+    if p_error_values is not None:
+        logger.update_p_error(p_error_values)  # Store P-error in MetricsLogger
+
     
     # Run End-to-End evaluation
     from benchmark.e2e_eval import run_workload
+    print("Running end-to-end evaluation...")
     total_time, results, _, _ = run_workload(args)
+    print("End-to-end evaluation completed.")
 
     # Capture execution times from results
     avg_exec_time = np.mean([r[1] for r in results]) if results else None
     e2e_time_ms = total_time * 1000 if total_time else None
     
     # Update MetricsLogger with final values
+    print("Updating MetricsLogger with final values...")
     logger.metrics["performance"]["training_time"] = training_time_hours
     logger.metrics["performance"]["avg_query_exec_time"] = avg_exec_time
     logger.metrics["performance"]["e2e_time"] = e2e_time_ms
@@ -342,5 +365,6 @@ if __name__ == '__main__':
 
     lines = [(str(x) + '\n') for x in preds]
     file_utils.write_all_lines(path, lines)
+    print(f"Predictions saved to {path}")
 
 # python train.py --model ALECE --batch_size 128 --keep_train 0 --gpu 1 --data STATS --wl_type ins_heavy

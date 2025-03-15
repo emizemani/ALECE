@@ -162,30 +162,8 @@ def get_setting_sqls(args, join_est_no, single_est_no, ignore_single_cards=True,
     if db_task is None:
         db_task = args.db_task
     setting_sqls = []
-    if (db_task == 'query_exec' or db_task == 'p_error' or db_task == 'hints_gen') and args.model != 'pg':
-        setting_sqls.append('SET read_join_cards=true;')
-        setting_sqls.append('SET join_read_flag=1;')
-
-        if args.test_wl_type != 'static':
-            method_joinest_fname = f'{args.model}_{args.data}_{train_wl_type_pre}_{test_wl_type_pre}.txt'
-        else:
-            method_joinest_fname = f'{args.model}_{args.data}_static.txt'
-
-        method_joinest_path = os.path.join(args.db_data_dir, method_joinest_fname)
-        # print('method_joinest_path =', method_joinest_path)
-        assert os.path.exists(method_joinest_path)
-        set_method_joinest_fname = 'SET join_cards_fname=\'{0:s}\';'.format(method_joinest_fname)
-
-        setting_sqls.append(set_method_joinest_fname)
-        setting_sqls.append(f'SET join_est_no={join_est_no};')
-
-        if ignore_single_cards == False:
-            model_name = None
-            if db_task == 'p_error':
-                model_name = 'optimal'
-            single_cards_read_sqls = get_single_cards_read_sqls(args, single_est_no, model_name=model_name)
-            setting_sqls.extend(single_cards_read_sqls)
-    elif args.db_task == 'pg_card_access':
+    
+    if args.db_task == 'pg_card_access':
         setting_sqls.append('SET write_pg_card_estimates=true;')
         setting_sqls.append(f'SET pg_join_cards_fname=\'{pg_cards_path}\';')
 
@@ -230,6 +208,9 @@ def run_workload(args, logger=None):
             conn.commit()
 
         if args.db_task == 'query_exec':
+            # Remove or comment out the following line to process all queries
+            # sqls = sqls[:1]
+
             for i, sql in enumerate(sqls):
                 if sql.startswith('insert') or sql.startswith('delete') or sql.startswith('update'):
                     try:

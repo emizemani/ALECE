@@ -3,7 +3,7 @@ import json
 import os
 import psutil
 import numpy as np
-import eval_utils
+from utils import eval_utils
 
 class MetricsLogger:
     def __init__(self, args, model_name):
@@ -64,3 +64,18 @@ class MetricsLogger:
         for ratio, key in zip(ratios, ["50th", "90th", "95th", "99th"]):
             idx = int(n * ratio)
             self.metrics["errors"]["q_error"][key] = float(q_error[idx])
+
+    def save(self):
+        """Save the metrics to a JSON file."""
+        # Define the path where the metrics will be saved
+        log_dir = self.args.experiments_dir
+        log_file = os.path.join(log_dir, f"{self.model_name}_metrics.json")
+
+        # Ensure the directory exists
+        os.makedirs(log_dir, exist_ok=True)
+
+        # Write the metrics to a JSON file
+        with open(log_file, 'w') as f:
+            json.dump(self.metrics, f, indent=4)
+
+        print(f"Metrics saved to {log_file}")

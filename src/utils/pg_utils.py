@@ -6,7 +6,7 @@ sys.path.append("../")
 from . import file_utils, FileViewer, arg_parser_utils
 # import file_utils, FileViewer
 
-PG_USER = '$PG_USER$'
+PG_USER = 'emi'
 
 def db_conn_str(db_name, port=4321):
     return f'dbname={db_name} user={PG_USER} host=localhost port={port}'
