@@ -17,7 +17,7 @@ class MetricsLogger:
             "training_config": {
                 "batch_size": args.batch_size,
                 "epochs": args.n_epochs,
-                "learning_rate": args.lr,
+                "learning_rate": args.lr
             },
             "performance": {
                 "training_time": 0,
@@ -26,13 +26,13 @@ class MetricsLogger:
             },
             "errors": {
                 "p_error": {
-                    "50th": 0,  # median
+                    "50th": 0,
                     "90th": 0,
                     "95th": 0,
                     "99th": 0
                 },
                 "q_error": {
-                    "50th": 0,  # median
+                    "50th": 0,
                     "90th": 0,
                     "95th": 0,
                     "99th": 0
@@ -44,38 +44,24 @@ class MetricsLogger:
                 "memory_mb": []
             }
         }
-        
-    def update_p_error(self, p_error_test):
-        """Update P-error using the same percentiles as calc_p_error.py"""
-        n = len(p_error_test)
-        ratios = [0.5, 0.9, 0.95, 0.99]
-        
-        for ratio, key in zip(ratios, ["50th", "90th", "95th", "99th"]):
-            idx = int(n * ratio)
-            self.metrics["errors"]["p_error"][key] = float(p_error_test[idx])
-
+    
     def update_q_error(self, card_preds, true_cards):
         """Update Q-error using eval_utils.generic_calc_q_error"""
         q_error = eval_utils.generic_calc_q_error(card_preds, true_cards)
         q_error = np.sort(q_error)  # Sort for percentile calculation
         n = len(q_error)
         ratios = [0.5, 0.9, 0.95, 0.99]
-        
         for ratio, key in zip(ratios, ["50th", "90th", "95th", "99th"]):
             idx = int(n * ratio)
             self.metrics["errors"]["q_error"][key] = float(q_error[idx])
-
+    
     def save(self):
-        """Save the metrics to a JSON file."""
-        # Define the path where the metrics will be saved
+        """Save the metrics to a JSON file and print them to the console."""
         log_dir = self.args.experiments_dir
         log_file = os.path.join(log_dir, f"{self.model_name}_metrics.json")
-
-        # Ensure the directory exists
         os.makedirs(log_dir, exist_ok=True)
-
-        # Write the metrics to a JSON file
         with open(log_file, 'w') as f:
             json.dump(self.metrics, f, indent=4)
-
         print(f"Metrics saved to {log_file}")
+        print("Final Metrics:")
+        print(json.dumps(self.metrics, indent=4))

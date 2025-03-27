@@ -8,7 +8,6 @@ from tqdm import tqdm
 
 from ALECE import ALECE_new
 from arg_parser import arg_parser
-
 from utils import FileViewer, file_utils, eval_utils, arg_parser_utils
 from data_process import feature
 from utils.metrics_logger import MetricsLogger
@@ -68,24 +67,25 @@ def train_with_batch(model, args, train_data, validation_data, curr_ckpt_step):
 
 def train_with_transfer(model, args, train_data, validation_data, metrics_logger):
     """
-    New simplified training loop for transfer learning.
-    Loads the (adapted) source checkpoint weights, then trains for a fixed 5 epochs.
-    It also logs resource usage and timing metrics.
+    Simplified transfer training loop.
+    Loads pre-trained weights (adapted) and then trains for a fixed 5 epochs.
+    Logs resource usage, prints epoch loss and time.
     """
     # Prepare datasets.
-    train_dataset = tf.data.Dataset.from_tensor_slices(train_data).shuffle(args.shuffle_buffer_size).batch(args.batch_size)
-    validation_dataset = tf.data.Dataset.from_tensor_slices(validation_data).batch(args.batch_size)
+    train_dataset = tf.data.Dataset.from_tensor_slices(train_data) \
+                                  .shuffle(args.shuffle_buffer_size) \
+                                  .batch(args.batch_size)
+    validation_dataset = tf.data.Dataset.from_tensor_slices(validation_data) \
+                                       .batch(args.batch_size)
 
     transfer_epochs = 5
     print(f"Starting transfer training for {transfer_epochs} epochs...")
     
-    # Wrap the epoch loop with tqdm.
     for epoch in tqdm(range(1, transfer_epochs + 1), desc="Transfer Epochs", dynamic_ncols=True):
         epoch_start = time.time()
         for batch in tqdm(train_dataset, desc=f"Epoch {epoch} Batches", leave=False, dynamic_ncols=True):
             model.train_step(batch)
         epoch_end = time.time()
-
 
         # Compute validation loss.
         val_loss = 0
@@ -103,7 +103,7 @@ def train_with_transfer(model, args, train_data, validation_data, metrics_logger
         memory_usage = psutil.virtual_memory().used / (1024 * 1024)  # in MB
         metrics_logger.metrics["resource_usage"]["cpu_percent"].append(cpu_usage)
         metrics_logger.metrics["resource_usage"]["memory_mb"].append(memory_usage)
-
+        print(f"Resource Usage - CPU: {cpu_usage}%, Memory: {memory_usage:.2f} MB")
 
 
 def eval(model, args, test_data, q_error_dir):
@@ -125,12 +125,13 @@ def eval(model, args, test_data, q_error_dir):
     q_error = eval_utils.generic_calc_q_error(preds, labels)
     idexes = np.where(q_error < 10)[0]
     n = idexes.shape[0]
-    print('ratio =', n / q_error.shape[0])
+    print('Ratio of queries with q_error < 10:', n / q_error.shape[0])
 
     if q_error_dir is not None:
         fname = model.model_name
         result_path = os.path.join(q_error_dir, fname + ".npy")
         np.save(result_path, preds)
+        print(f"Predictions saved to: {result_path}")
 
     return preds
 
@@ -161,11 +162,9 @@ def organize_data(raw_data_i, args):
     features = raw_data_i[0]
     db_states = features[:, 0:args.histogram_feature_dim]
     query_part_features = features[:, args.histogram_feature_dim:]
-
     data = [db_states, query_part_features]
     data.extend(raw_data_i[1:])
-    data = tuple(data)
-    return data
+    return tuple(data)
 
 
 def cards_to_labels(cards, args):
@@ -173,8 +172,7 @@ def cards_to_labels(cards, args):
     assert card_min >= 0
     dtype = np.float32
     if args.use_float64 == 1:
-        dtype = tf.float64
-
+        dtype = np.float64
     cards += 1
     cards = cards.astype(dtype)
     if args.card_log_scale == 1:
@@ -189,23 +187,27 @@ def label_preds_to_card_preds(preds, args):
     preds = np.reshape(preds, [-1])
     if args.card_log_scale:
         preds *= args.scaling_ratio
-        preds = np.clip(preds, a_max=25, a_min=0)
+        # Lower the clip threshold to keep the values modest.
+        preds = np.clip(preds, a_max=5, a_min=0)
         preds = np.exp(preds) - 1
+        # Cap final predictions to 500.
+        preds = np.clip(preds, a_max=500, a_min=0)
     return preds
 
 
 def data_compile(data, args):
-    dtype = tf.float32
+    dtype = np.float32
     if args.use_float64 == 1:
-        dtype = tf.float64
-
-    tf_data = tuple(tf.convert_to_tensor(x, dtype=dtype) for x in data)
-    return tf_data
+        dtype = np.float64
+    return tuple(tf.convert_to_tensor(x, dtype=dtype) for x in data)
 
 
 def load_data(args):
     print('Loading data...')
-
+    print(f"Base directory: {args.base_dir}")
+    print(f"Data directory: {args.data_dir}")
+    print(f"Experiments directory: {args.experiments_dir}")
+    
     workload_data = feature.load_workload_data(args)
     ckpt_dir = arg_parser_utils.get_ckpt_dir(args)
     _, q_error_dir = arg_parser_utils.get_p_q_error_dir(args)
@@ -222,38 +224,24 @@ def load_data(args):
     args.num_attrs = num_attrs
 
     print('Processing data...')
-
     (train_features, train_cards) = valid_datasets((train_features, train_cards))
-
     train_labels = cards_to_labels(train_cards, args)
-
     _n_test = test_features.shape[0]
     (test_features, test_cards) = valid_datasets((test_features, test_cards))
     assert test_features.shape[0] == _n_test
-
     test_labels = cards_to_labels(test_cards, args)
-
-    (train_features, test_features) = normalizations(
-        (train_features, test_features)
-    )
-
-    # randomly select 10% of train data as validation data
+    (train_features, test_features) = normalizations((train_features, test_features))
+    
     N_train = train_features.shape[0]
     shuffle_idxes = np.arange(0, N_train, dtype=np.int64)
     np.random.shuffle(shuffle_idxes)
-
     train_features = train_features[shuffle_idxes]
     train_labels = train_labels[shuffle_idxes]
-
-    # split data into training and validation parts
     N_train = int(N_train * 0.9)
-
     validation_features = train_features[N_train:]
     validation_labels = train_labels[N_train:]
-
     train_features = train_features[0: N_train]
     train_labels = train_labels[0: N_train]
-
     label_mean = np.mean(train_labels)
     if args.use_loss_weights == 1:
         weights = train_labels / label_mean
@@ -261,16 +249,12 @@ def load_data(args):
         weights = np.clip(weights, a_min=1e-3, a_max=np.max(weights))
     else:
         weights = np.ones(shape=[train_labels.shape[0]], dtype=train_labels.dtype)
-
     train_data = (train_features, weights, train_labels)
     validation_data = (validation_features, validation_labels)
-    # validation_data = (test_features, test_labels)
     test_data = (test_features, test_labels)
-
     train_data = organize_data(train_data, args)
     validation_data = organize_data(validation_data, args)
     test_data = organize_data(test_data, args)
-
     train_data = data_compile(train_data, args)
     validation_data = data_compile(validation_data, args)
     test_data = data_compile(test_data, args)
@@ -280,64 +264,65 @@ def load_data(args):
 
 if __name__ == '__main__':
     args = arg_parser.get_arg_parser()
+    print("Parsed arguments:")
+    for arg, value in sorted(vars(args).items()):
+        print(f"  {arg}: {value}")
+
     gpus = tf.config.list_physical_devices('GPU')
     tf.config.set_visible_devices(gpus[args.gpu:args.gpu + 1], 'GPU')
-
     test_wl_type = args.test_wl_type
     FileViewer.detect_and_create_dir(args.experiments_dir)
+    print(f"Experiments directory: {args.experiments_dir}")
 
     datasets, q_error_dir, ckpt_dir = load_data(args)
     (train_data, validation_data, test_data) = datasets
 
     model_name = f'{args.model}_{args.wl_type}'
-    # ====================================================
+    print(f"Model name set to: {model_name}")
     model = ALECE_new.ALECE(args)
     model.set_model_name(model_name)
     model.ckpt_init(ckpt_dir)
+    print(f"Checkpoint directory: {ckpt_dir}")
 
-    # Load source checkpoint if provided, and adapt its weights.
     if hasattr(args, "source_ckpt_dir") and args.source_ckpt_dir and os.path.exists(args.source_ckpt_dir):
         print(f"Source checkpoint directory provided: {args.source_ckpt_dir}")
         model.explicit_adapt_and_restore(args.source_ckpt_dir)
     else:
         print("No valid source checkpoint directory provided. Training from scratch.")
 
-    # Initialize Metrics Logger.
     metrics_logger = MetricsLogger(args, model_name)
-
-    # Transfer learning training: 5 epochs.
+    print("Starting transfer learning training...")
     start_train = time.time()
     train_with_transfer(model, args, train_data, validation_data, metrics_logger)
     end_train = time.time()
     metrics_logger.metrics["performance"]["training_time"] = end_train - start_train
     metrics_logger.metrics["performance"]["e2e_time"] = end_train - metrics_logger.start_time
 
-    # Save checkpoint after training.
     model.save(5)  # Save with the final epoch count as the ckpt step.
     model.compile(train_data)
 
     ckpt_step = model.restore().numpy()
     assert ckpt_step >= 0
     preds = eval(model, args, test_data, q_error_dir)
-
-    # Update Q-error metrics.
     metrics_logger.update_q_error(preds, test_data[-1].numpy())
     metrics_logger.save()  # Save metrics to a JSON file.
 
-    # ====================================================
+    print("Final Metrics:")
+    import json
+    print(json.dumps(metrics_logger.metrics, indent=4))
+
     preds = preds.tolist()
     workload_dir = arg_parser_utils.get_workload_dir(args, test_wl_type)
     e2e_dir = os.path.join(args.experiments_dir, args.e2e_dirname)
     FileViewer.detect_and_create_dir(e2e_dir)
     train_wl_type_pre, test_wl_type_pre, pg_cards_path = arg_parser_utils.get_wl_type_pre_and_pg_cards_paths(args)
-
     if test_wl_type == 'static':
         path = os.path.join(e2e_dir, f'{args.model}_{args.data}_static.txt')
     else:
         path = os.path.join(e2e_dir, f'{args.model}_{args.data}_{train_wl_type_pre}_{test_wl_type_pre}.txt')
-
     lines = [(str(x) + '\n') for x in preds]
     file_utils.write_all_lines(path, lines)
+    print(f"Predictions saved to: {path}")
 
 # To run:
-# python train.py --model ALECE --batch_size 128 --keep_train 0 --gpu 1 --data STATS --wl_type static --source_ckpt_dir /path/to/source_ckpt
+# python transfer_learning_train.py --model ALECE --batch_size 128 --keep_train 0 --gpu 1 --data STATS --wl_type static --source_ckpt_dir ../exp/job_light/ckpt/ALECE_static/ --target_dataset STATS
